@@ -1,7 +1,4 @@
-"""Source definitions and shared input checks."""
-
 from functools import reduce
-
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructField, StructType
 

@@ -1,4 +1,3 @@
-# Course-aligned environment for EDA and the later PySpark pipeline.
 jupyterlab==4.3.5
 ipykernel==6.29.5
 numpy==2.2.2
