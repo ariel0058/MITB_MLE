@@ -1,7 +1,6 @@
 """Build application-time feature and outcome label stores from Silver tables."""
 
 from pathlib import Path
-
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
@@ -114,7 +113,7 @@ def build_label_store(
     dpd_threshold: int = LABEL_DPD,
     observation_mob: int = LABEL_MOB,
 ) -> DataFrame:
-    """Create the Lab 2 definition: default when DPD is at least 30 at MOB 6."""
+    """Use the Lab 2 definition, default when DPD is at least 30 at MOB 6."""
     return (
         loan_daily.filter(F.col("mob") == observation_mob)
         .withColumn(

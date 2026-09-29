@@ -1,10 +1,6 @@
-"""Run the Assignment 1 Bronze, Silver, and Gold pipeline."""
-
 import argparse
 from pathlib import Path
-
 from pyspark.sql import SparkSession
-
 from utils.common import SOURCE_FILES
 from utils.data_processing_bronze_table import process_bronze_table
 from utils.data_processing_gold_table import process_gold_tables
