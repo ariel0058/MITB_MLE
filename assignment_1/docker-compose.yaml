@@ -1,0 +1,14 @@
+name: assignment1
+
+services:
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    init: true
+    ports:
+      - "127.0.0.1:8888:8888"
+    volumes:
+      # Only this assignment is mounted; lab_1 and lab_2 are outside /app.
+      - .:/app
