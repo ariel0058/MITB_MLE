@@ -1,0 +1,31 @@
+name: assignment2
+
+services:
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    command: standalone
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - airflow_home:/opt/airflow
+      - ./dags:/opt/airflow/dags:ro
+      - .:/app
+
+  jupyter:
+    profiles: ["notebook"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    init: true
+    ports:
+      - "127.0.0.1:8888:8888"
+    volumes:
+      - .:/app
+
+volumes:
+  airflow_home:
