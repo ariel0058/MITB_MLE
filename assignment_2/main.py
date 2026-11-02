@@ -14,7 +14,7 @@ def main(stage="all"):
     silver_directory = root / "datamart" / "silver"
     gold_directory = root / "datamart" / "gold"
     spark = (
-        SparkSession.builder.appName("assignment1-medallion-pipeline")
+        SparkSession.builder.appName("assignment2-medallion-pipeline")
         .master("local[2]")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.ui.showConsoleProgress", "false")

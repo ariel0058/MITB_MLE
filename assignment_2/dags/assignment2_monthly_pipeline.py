@@ -16,6 +16,20 @@ with DAG(
     max_active_runs=1,
     default_args={"retries": 1, "retry_delay": timedelta(minutes=2)},
     tags=["assignment2", "monthly"],
+    doc_md="""
+    ### Assignment 2 historical replay
+
+    This DAG replays the 2024-11-01, 2024-12-01, and 2025-01-01 application months.
+    In the UI, unpause it and let `catchup=True` run those scheduled dates.
+    Alternatively, run:
+
+    ```bash
+    airflow dags backfill -s 2024-11-01 -e 2025-01-01 assignment2_monthly_pipeline
+    ```
+
+    A manual trigger with an arbitrary current date is not the intended way to run
+    this historical replay.
+    """,
 ) as dag:
     prepare_datamart = BashOperator(
         task_id="prepare_datamart",

@@ -21,8 +21,8 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt \
     && python -m pip check \
-    && python -m ipykernel install --sys-prefix --name assignment1 \
-       --display-name "Python (Assignment 1 Docker)"
+    && python -m ipykernel install --sys-prefix --name assignment2 \
+       --display-name "Python (Assignment 2 Docker)"
 
 EXPOSE 8888
 
