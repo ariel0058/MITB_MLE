@@ -1,4 +1,4 @@
-"""Monitor one stored prediction month with a frozen-model OOT score reference."""
+"""Calculate score stability and mature-label performance for one month."""
 
 import argparse
 import json

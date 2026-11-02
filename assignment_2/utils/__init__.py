@@ -1,1 +1,1 @@
-"""Data processing modules for Assignment 1."""
+"""Utilities for the loan default project."""

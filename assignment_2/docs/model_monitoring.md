@@ -1,8 +1,8 @@
-# Assignment 2 monthly model monitoring (Step 8)
+# Monthly model monitoring
 
-This is a retrospective monitoring replay for the frozen `xgboost_20241031_v1` champion. Stored application-time predictions are monitored for November 2024, December 2024, and January 2025. Predictions are never regenerated here. Labels are read only when the supplied monitoring `as-of` date reaches that cohort's MOB 6 label date.
+I monitored the stored predictions for November 2024 to January 2025 from `xgboost_20241031_v1`. This is a retrospective replay. Predictions were generated using application-time features, while the MOB 6 labels are only used after they become available. The monitoring step reads the stored predictions instead of scoring the applications again.
 
-From the workspace root, run:
+Run from the workspace root:
 
 ```bash
 docker compose -f assignment_2/docker-compose.yaml run --rm --no-deps jupyter python model_monitoring.py --snapshot-date 2024-11-01 --as-of-date 2025-05-01
@@ -11,15 +11,34 @@ docker compose -f assignment_2/docker-compose.yaml run --rm --no-deps jupyter py
 docker compose -f assignment_2/docker-compose.yaml run --rm --no-deps jupyter python plot_monitoring.py
 ```
 
-For an immature-label check without changing Gold, use `--snapshot-date 2025-01-01 --as-of-date 2025-06-30 --dry-run`. This produced `performance_available=false`, `labelled_count=0`, and null actual default rate, ROC-AUC, and Gini, while stability measures remained available.
+An immature-label check with `--snapshot-date 2025-01-01 --as-of-date 2025-06-30 --dry-run` returned `performance_available=false`, `labelled_count=0`, and the performance metrics were null. Stability metrics were still calculated, and the dry run did not write to Gold.
 
 ## Stability and performance definitions
 
-Stability uses prediction count, mean and median predicted probability, and score PSI. The PSI reference consists of **2,986** May–October 2024 OOT applications scored afresh with the **same saved champion** using application-time Gold features only. Nine quantiles from this reference alone form ten fixed score bins; duplicate edges are removed if necessary, and the outer bins extend to infinity. Each monitored month is counted against those same boundaries. PSI is `sum((current_share − reference_share) × ln(current_share / reference_share))`, with `1e-6` protection for empty bins. No label enters PSI. For descriptive reading, PSI below 0.10 suggests low shift, 0.10–0.25 moderate shift, and 0.25 or above a shift worth investigating; these are guidelines, not automatic retraining rules.
+I use prediction count, mean and median predicted probability, and score PSI to monitor stability.
 
-Performance becomes available only when `as_of_date >= feature_snapshot_date + 6 months`. The workflow then joins stored predictions to `label_store` one-to-one by `loan_id`, checks the MOB 6 date and `30dpd_6mob` definition, and calculates actual default rate, probability-based ROC-AUC, and Gini (`2 × AUC − 1`). Before maturity, performance fields are null rather than zero.
+The PSI reference is the 2,986 May–October 2024 OOT applications. These applications are scored using the same saved model and Gold feature store. The reference score distribution is divided into ten fixed bins using reference quantiles, and the same bin boundaries are then applied to each monitored month.
 
-The Gold table is `datamart/gold/model_monitoring/`, partitioned by `feature_snapshot_date`, at one row per month and model version. Its fields are `feature_snapshot_date` (date), `model_version` (string), `prediction_count` (int), `mean_predicted_probability` and `median_predicted_probability` (double), `score_psi` (double), `expected_label_snapshot_date` and `performance_as_of_date` (date), `performance_available` (boolean), `labelled_count` (int), and nullable `actual_default_rate`, `roc_auc`, `gini` (double). Rerunning a month replaces only that partition.
+PSI is calculated as: `sum((current_share − reference_share) × ln(current_share / reference_share))`
+
+A small 1e-6 value is used to avoid issues with empty bins. Labels are not needed for PSI.
+
+For interpretation, I use the following ranges as general guidelines:
+- PSI < 0.10: low shift
+- PSI 0.10–0.25: moderate shift
+- PSI ≥ 0.25: larger shift that may need investigation
+
+These ranges are used for monitoring only and do not automatically trigger retraining.
+
+Performance is calculated only after the MOB 6 label becomes available. Once `as_of_date >= feature_snapshot_date + 6 months`, the stored predictions are joined to `label_store` by `loan_id`.
+
+The workflow checks that the prediction and label records match, that the label date is the expected MOB 6 date, and that the label definition is `30dpd_6mob`. It then calculates actual `default rate`, `ROC-AUC`, and `Gini (2 × AUC − 1)`. Before label maturity, these fields remain null.
+
+Monitoring results are written to: `datamart/gold/model_monitoring/`
+
+The table contains one row per application month and model version. It stores the application month, model version, prediction count, mean and median predicted probability, score PSI, expected label date, monitoring as-of date, label availability, labelled count, actual default rate, ROC-AUC, and Gini.
+
+Rerunning a month overwrites only that month's partition.
 
 ## Historical replay results
 
@@ -29,6 +48,15 @@ The Gold table is `datamart/gold/model_monitoring/`, partitioned by `feature_sna
 | 2024-12 | 515 / 515 | 0.2427 | 0.1527 | 0.0598 | 0.2718 | 0.8482 | 0.6965 |
 | 2025-01 | 526 / 526 | 0.2786 | 0.1666 | 0.0654 | 0.2681 | 0.7781 | 0.5562 |
 
-All three PSI values are below 0.10, so these score distributions show low shift under the stated guideline. December's lower mean score does not correspond to a large PSI shift. January has the weakest observed discrimination (AUC 0.7781 versus 0.8482 in December), which merits continued observation; three months of roughly 500 loans each do not establish a sustained performance decline. The actual default rate varies less than mean predicted risk across these months. These are descriptive comparisons, not causal or full calibration conclusions.
+All three PSI values are below 0.10, so the score distributions show relatively low shift compared with the OOT reference.
 
-Charts for the final slideument are [performance](../reports/monitoring/performance.png), [predicted risk vs actual default rate](../reports/monitoring/risk_vs_actual.png), and [score PSI](../reports/monitoring/score_psi.png). The final Gold has exactly three rows, no duplicate month/version keys, valid PSI and probability-based performance fields, and matching prediction/label counts. Replaying November left its row count at one and the other two partition files unchanged. No retraining, feature selection, CSI, or automated governance action is performed.
+December had the lowest mean predicted risk, but its PSI remained low. January had the weakest discrimination, with ROC-AUC decreasing to 0.7781 from 0.8482 in December. This is worth monitoring, but one weaker monthly cohort is not enough to conclude that model performance is consistently deteriorating.
+
+The actual default rate was more stable across the three months than the mean predicted risk. These results are descriptive and are not used as a full calibration assessment.
+
+The monitoring charts are:
+- Model performance
+- Predicted risk vs actual default rate
+- Score PSI
+
+The final Gold monitoring table contains three unique month/model rows. Prediction and label counts match for each mature cohort. Rerunning November kept one row for that month and did not change the December or January partitions.

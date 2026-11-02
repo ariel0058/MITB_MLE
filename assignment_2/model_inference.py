@@ -1,4 +1,4 @@
-"""Score one application month with the frozen champion; no training occurs here."""
+"""Score one application month with the saved model."""
 
 import argparse
 import json

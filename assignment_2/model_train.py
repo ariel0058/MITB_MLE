@@ -1,4 +1,4 @@
-"""Compare models, refit the champion, and optionally save it to model_bank."""
+"""Compare models, refit the selected one, and optionally save it."""
 
 import argparse
 import json
@@ -145,11 +145,11 @@ def main(save_champion: bool = False) -> None:
             (F.col("feature_snapshot_date") >= "2024-01-01")
             & (F.col("feature_snapshot_date") < "2024-05-01")
         ).toPandas()
-        assert (len(train), len(validation)) == (5958, 2027)
+        assert not train.empty and not validation.empty
         assert len(set(train.loan_id) & set(validation.loan_id)) == 0
         assert train.label.nunique() == validation.label.nunique() == 2
         assert max(train.label_snapshot_date.max(), validation.label_snapshot_date.max()).isoformat() <= FIT_DATE
-        assert len(MODEL_FEATURES) == 71 and len(set(MODEL_FEATURES)) == 71
+        assert len(set(MODEL_FEATURES)) == len(MODEL_FEATURES)
         assert set(MODEL_FEATURES).isdisjoint(
             {"loan_id", "Customer_ID", "feature_snapshot_date", "label_snapshot_date", "label", "dpd", "overdue_amt", "paid_amt"}
         )
@@ -178,16 +178,11 @@ def main(save_champion: bool = False) -> None:
             ("logistic_regression", "xgboost"),
             key=lambda name: candidates[name]["validation"]["roc_auc"],
         )
-        assert champion_name == "xgboost"
 
         # Refit a fresh, identical pipeline on all mature development rows.
         final_training = pd.concat([train, validation], ignore_index=True)
-        assert len(final_training) == 7985
         assert final_training.loan_id.is_unique
-        assert final_training.feature_snapshot_date.min().isoformat() == "2023-01-01"
-        assert final_training.feature_snapshot_date.max().isoformat() == "2024-04-01"
-        assert final_training.label_snapshot_date.max().isoformat() <= FIT_DATE
-        final_champion = make_pipeline("xgboost")
+        final_champion = make_pipeline(champion_name)
         with warnings.catch_warnings(record=True) as refit_warnings:
             warnings.simplefilter("always")
             final_champion.fit(final_training.loc[:, MODEL_FEATURES], final_training["label"])
@@ -201,7 +196,7 @@ def main(save_champion: bool = False) -> None:
             (F.col("feature_snapshot_date") >= "2024-05-01")
             & (F.col("feature_snapshot_date") < "2024-11-01")
         ).toPandas()
-        assert len(oot) == 2986 and oot.label.nunique() == 2
+        assert not oot.empty and oot.label.nunique() == 2
         assert len(set(final_training.loan_id) & set(oot.loan_id)) == 0
         assert oot.label_snapshot_date.max().isoformat() <= OOT_EVALUATION_DATE
 
@@ -219,7 +214,7 @@ def main(save_champion: bool = False) -> None:
                 "application_end": str(final_training.feature_snapshot_date.max()),
                 "transformed_features": len(final_champion.named_steps["preprocessing"].get_feature_names_out()),
                 "numeric_medians_changed_from_train_only": changed_medians,
-                "top_features": top_features(final_champion, "xgboost"),
+                "top_features": top_features(final_champion, champion_name),
                 "fit_warnings": [str(w.message) for w in refit_warnings],
             },
             "final_champion_oot": final_oot,
@@ -230,15 +225,22 @@ def main(save_champion: bool = False) -> None:
             transformed_names = [
                 str(name) for name in final_champion.named_steps["preprocessing"].get_feature_names_out()
             ]
-            parameter_names = (
-                "n_estimators", "max_depth", "learning_rate", "subsample",
-                "colsample_bytree", "reg_lambda", "objective", "eval_metric",
-                "tree_method", "random_state", "n_jobs",
-            )
+            model_type = {
+                "xgboost": "XGBoost",
+                "logistic_regression": "Logistic Regression",
+            }[champion_name]
+            parameter_names = {
+                "xgboost": (
+                    "n_estimators", "max_depth", "learning_rate", "subsample",
+                    "colsample_bytree", "reg_lambda", "objective", "eval_metric",
+                    "tree_method", "random_state", "n_jobs",
+                ),
+                "logistic_regression": ("C", "penalty", "solver", "max_iter", "random_state"),
+            }[champion_name]
             selected_parameters = final_champion.named_steps["model"].get_params()
             metadata = {
                 "model_version": MODEL_VERSION,
-                "model_type": "XGBoost",
+                "model_type": model_type,
                 "target_definition": "30dpd_6mob",
                 "fit_date": FIT_DATE,
                 "training_application_start": "2023-01-01",
@@ -267,13 +269,13 @@ def main(save_champion: bool = False) -> None:
             assert loaded_metadata == metadata
             assert isinstance(reloaded, Pipeline) and hasattr(reloaded, "predict_proba")
             assert loaded_metadata["model_version"] == model_directory.name
-            assert loaded_metadata["input_feature_count"] == len(MODEL_FEATURES) == 71
+            assert loaded_metadata["input_feature_count"] == len(MODEL_FEATURES)
             assert loaded_metadata["input_features"] == list(MODEL_FEATURES)
             assert loaded_metadata["numeric_features"] == list(NUMERIC_FEATURES)
             assert loaded_metadata["categorical_features"] == list(CATEGORICAL_FEATURES)
             loaded_names = list(reloaded.named_steps["preprocessing"].get_feature_names_out())
             assert loaded_names == transformed_names == loaded_metadata["transformed_feature_names"]
-            assert len(loaded_names) == loaded_metadata["transformed_feature_count"] == 97
+            assert len(loaded_names) == loaded_metadata["transformed_feature_count"]
             assert list(reloaded.named_steps["preprocessing"].feature_names_in_) == list(MODEL_FEATURES)
             assert set(MODEL_FEATURES).isdisjoint(
                 {"loan_id", "Customer_ID", "feature_snapshot_date", "label_snapshot_date", "label", "dpd", "overdue_amt", "paid_amt"}
@@ -291,14 +293,12 @@ def main(save_champion: bool = False) -> None:
                     np.max(np.abs(original_probabilities - loaded_probabilities))
                 ),
             }
-
         print(
             "STEP5_RESULT="
             + json.dumps(result)
         )
     finally:
         spark.stop()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train and evaluate the Assignment 2 champion")

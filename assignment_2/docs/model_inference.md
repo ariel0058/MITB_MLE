@@ -1,8 +1,10 @@
-# Assignment 2 monthly inference (Step 7)
+# Monthly inference
 
-The frozen `xgboost_20241031_v1` champion is replayed month by month on later loan applications. This is a retrospective production-like simulation, not a claim that the model was historically deployed. Inference reads only `datamart/gold/feature_store/` and the saved model bank artefact. It does not read `label_store`, call `fit`, or recalculate preprocessing. MOB 6 outcomes become known later and are outside this step.
+The saved `xgboost_20241031_v1` model is used to score three later application months: November 2024, December 2024, and January 2025. This is a retrospective replay of monthly inference rather than a historical deployment.
 
-From the workspace root, run one month at a time:
+Inference uses the Gold feature store together with the saved fitted pipeline. Since the target is based on MOB 6 outcomes, labels are not available at application time and are not used in this step.
+
+Run one month at a time from the workspace root:
 
 ```bash
 docker compose -f assignment_2/docker-compose.yaml run --rm --no-deps jupyter python model_inference.py --snapshot-date 2024-11-01
@@ -10,9 +12,20 @@ docker compose -f assignment_2/docker-compose.yaml run --rm --no-deps jupyter py
 docker compose -f assignment_2/docker-compose.yaml run --rm --no-deps jupyter python model_inference.py --snapshot-date 2025-01-01
 ```
 
-The script loads the complete fitted Pipeline with `utils.model_store.load_model`, checks the 71 required fields and their numeric/categorical types, and passes them to `predict_proba` in the exact order recorded in `metadata.json`. It requires an application month after the 2024-10-31 model fitting cut-off. Its only prediction source is the selected month's application-time Gold feature rows.
+`utils.model_store.load_model` loads the fitted pipeline and metadata. The script checks that the required input features are present with the expected data types and order, then passes them to `predict_proba`. Only application months after the 2024-10-31 fitting cut-off are accepted.
 
-The Gold table is `datamart/gold/model_predictions/`, partitioned by `feature_snapshot_date`. Its columns are `loan_id` (string), `Customer_ID` (string), `feature_snapshot_date` (date), `model_version` (string), and `predicted_default_probability` (double). No label, DPD, overdue amount, paid amount, or future repayment field is stored. A rerun overwrites only the requested month's partition.
+No preprocessing or model fitting is repeated during inference. The saved imputation, encoding, and XGBoost model are reused directly.
+
+Predictions are written to: `datamart/gold/model_predictions/`
+
+The table is partitioned by feature_snapshot_date and contains:
+- loan_id
+- Customer_ID
+- feature_snapshot_date
+- model_version
+- predicted_default_probability
+
+No label or future outcome fields are included. Rerunning a month overwrites only that month's partition.
 
 | Application month | Predictions | Unique loans | Min probability | Max probability | Mean probability | Median probability |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -20,4 +33,8 @@ The Gold table is `datamart/gold/model_predictions/`, partitioned by `feature_sn
 | 2024-12-01 | 515 | 515 | 0.016178 | 0.732174 | 0.242681 | 0.152694 |
 | 2025-01-01 | 526 | 526 | 0.022250 | 0.735901 | 0.278643 | 0.166584 |
 
-Combined validation: **1,529 predictions for 1,529 distinct loans**; exact one-to-one coverage of the eligible feature rows; zero duplicate `(loan_id, model_version)` keys; no null IDs or probabilities; all scores in `[0, 1]`; one model version and exactly the three requested monthly partitions. Replaying November still produced 488 distinct rows, and the December/January partition files remained byte-for-byte unchanged. The table reports score distributions, not model performance; no AUC, Gini, PSI, or monitoring table is produced here.
+Across the three months, 1,529 eligible applications produced 1,529 predictions. There were no duplicate (loan_id, model_version) keys, null IDs, or null scores, and all probabilities were within [0, 1].
+
+November is reran to check the monthly overwrite logic. It remained at 488 rows, while the December and January partitions were unchanged.
+
+These results describe the prediction score distribution only. Model performance is evaluated later, once the corresponding MOB 6 labels become available.

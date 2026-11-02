@@ -55,7 +55,7 @@ def build_feature_store(
     clickstream: DataFrame,
     loan_daily: DataFrame,
 ) -> DataFrame:
-    """Create one leakage-safe feature row for every loan application."""
+    """Create one application-time feature row per loan."""
     applications = (
         loan_daily.filter(F.col("mob") == 0)
         .select(

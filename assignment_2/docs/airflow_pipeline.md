@@ -1,12 +1,12 @@
-# Assignment 2 Airflow pipeline
+# Airflow pipeline
 
-`assignment2_monthly_pipeline` runs the existing scripts in order:
+`assignment2_monthly_pipeline` calls the scripts used in the earlier stages:
 
 `prepare_datamart` (`main.py --stage all`) → `build_model_bank` (`model_train.py --save-model`) → `monthly_inference` → `monthly_monitoring`.
 
-The DAG is scheduled for the first day of each month (`0 0 1 * *`, UTC), with catchup enabled, start date 2024-11-01, end date 2025-01-01, and `max_active_runs=1`. Its three logical application dates are 2024-11-01, 2024-12-01 and 2025-01-01. Monthly inference receives `{{ ds }}`. Monitoring receives `{{ ds }}` plus six months as its label-knowledge date (2025-05-01, 2025-06-01, 2025-07-01). The latter dates are when MOB 6 labels can first be assessed. This is a retrospective coursework replay, not a claim of historical deployment.
+The DAG uses a first-of-month schedule (`0 0 1 * *`, UTC), catchup, and `max_active_runs=1`. With a start date of 2024-11-01 and end date of 2025-01-01, Airflow creates logical dates for November, December, and January only. Inference receives that logical date as `{{ ds }}`. Monitoring receives the application month plus six months, when its MOB 6 label becomes available: 2025-05-01, 2025-06-01, and 2025-07-01. These runs replay historical cohorts; they do not represent a deployment at those dates.
 
-The first two tasks reproduce shared inputs and the same deterministic `xgboost_20241031_v1` artefact on each run. They do not expand the fitting period or create a monthly model version. Monthly tasks consume the frozen model. Sequential DAG runs and month-level overwrite behaviour make retries and backfill safe. Plot generation remains a separate command after the three monitoring rows exist.
+For a clean start, the first two tasks rebuild the datamart and the same `xgboost_20241031_v1` artefact on each run. The fitting period and model version stay fixed; monthly inference loads that saved model. Runs execute sequentially, and the monthly outputs replace their own partitions on retry. Charts are generated separately once all monitoring rows are present.
 
 From `assignment_2/`:
 
@@ -18,18 +18,12 @@ docker compose exec -T airflow airflow dags backfill \
   -s 2024-11-01 -e 2025-01-01 assignment2_monthly_pipeline
 ```
 
-Airflow UI: http://127.0.0.1:8080/ . Log in as `admin`; the generated password is in `/opt/airflow/standalone_admin_password.txt` (read it with `docker compose exec -T airflow cat /opt/airflow/standalone_admin_password.txt`). The DAG is initially paused; the CLI backfill command above runs the three historical dates. It can be unpaused in the UI for scheduled catchup instead. Check each task in the three DAG runs. The Step 0 `assignment2_smoke_test` DAG only checks the Airflow environment.
+The UI is at http://127.0.0.1:8080/. Log in as `admin`; retrieve the generated password with `docker compose exec -T airflow cat /opt/airflow/standalone_admin_password.txt`. The DAG starts paused, but the CLI backfill command runs the three dates without unpausing it. `assignment2_smoke_test` is a separate environment check.
 
-The Airflow container runs scripts directly from the bind-mounted `/app` directory. Outputs persist in `datamart/bronze/`, `datamart/silver/`, `datamart/gold/`, `model_bank/xgboost_20241031_v1/` and `reports/monitoring/` under `assignment_2/`. Expected monthly prediction counts are 488, 515 and 526; the monitoring table has one row per month and model version.
+The Airflow container runs the scripts from the bind-mounted `/app` directory. The `datamart/` and `model_bank/` outputs therefore persist under `assignment_2/` on the host. Plot files in `reports/monitoring/` come from the separate plotting script.
 
 ## Validated historical replay
 
-The three backfill DAG runs and all 12 core task instances succeeded. The rebuilt feature and label stores each contain 12,500 unique loans. The model bank contains `model.joblib` and `metadata.json` for `xgboost_20241031_v1` (7,985 training rows; final OOT AUC 0.8203, Gini 0.6406). The prediction table contains 1,529 unique loans, with 488/515/526 in Nov/Dec/Jan. Monitoring contains exactly three unique month/model rows:
+All three backfill runs succeeded, with 12 successful task instances and no DAG import errors. The rebuilt feature and label stores each contain 12,500 unique loans. The model bank contains `model.joblib` and `metadata.json`; predictions cover 1,529 unique loans (488/515/526 by month), and monitoring has three month/model rows. The monthly PSI and AUC values are recorded in [model_monitoring.md](model_monitoring.md).
 
-| Application month | Score PSI | ROC-AUC | Gini |
-| --- | ---: | ---: | ---: |
-| 2024-11-01 | 0.081905 | 0.808836 | 0.617672 |
-| 2024-12-01 | 0.059811 | 0.848238 | 0.696476 |
-| 2025-01-01 | 0.065352 | 0.778088 | 0.556176 |
-
-`airflow tasks test assignment2_monthly_pipeline monthly_inference 2024-11-01` and the corresponding `monthly_monitoring` task were rerun. Prediction counts stayed at 1,529 total/488 for Nov and monitoring stayed at three rows/one for Nov. The Step 8 date guard rejects an as-of date before the application month; an as-of date before label maturity keeps performance fields null in dry-run mode.
+I reran the November inference and monitoring tasks with `airflow tasks test`. The prediction table still had 1,529 rows overall and 488 for November; monitoring still had three rows overall and one for November.

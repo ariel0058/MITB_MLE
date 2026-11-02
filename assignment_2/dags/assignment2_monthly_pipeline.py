@@ -1,4 +1,4 @@
-"""Replay the validated Assignment 2 scripts for three application months."""
+"""Run the data, model, prediction and monitoring scripts each month."""
 
 from datetime import datetime, timedelta
 
